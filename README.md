@@ -5,38 +5,26 @@
 
 ## Project 1 — Network Penetration Testing
 
-Scanning was performed against an isolated Metasploitable virtual machine from a Kali Linux VM, on a private VirtualBox host-only network.
+For this project I set up an isolated lab using a Kali Linux VM and a Metasploitable VM on a private VirtualBox host-only network, so nothing left the lab environment.
 
-nmap scans (basic, top-ports, `-sV`, `-A`, `-sU`, and a full `/24` subnet sweep) identified 17 open TCP ports and several open UDP ports. Wireshark was used to capture and filter live traffic during scanning, including SYN packets, source-IP-filtered traffic, and traffic on port 80.
+I started with basic ping and nmap scans to confirm the target was alive and to see what ports were open, then moved on to more detailed scans, including a service version scan (`-sV`), an aggressive scan (`-A`), a UDP scan, and a full scan across the `/24` subnet to make sure I wasn't missing any devices on the network. Altogether these scans turned up 17 open TCP ports and several open UDP ports on the Metasploitable machine. Alongside the scanning, I used Wireshark to capture and filter the live traffic, looking specifically at SYN packets, traffic filtered by source IP, and traffic on port 80, to get a feel for what the scans actually looked like at the packet level.
 
-The most significant finding was `vsftpd 2.3.4` on port 21, a version with a publicly known backdoor. This was confirmed and exploited using Metasploit (`exploit/unix/ftp/vsftpd_234_backdoor`), resulting in a remote root shell on the target.
+The most interesting finding by far was port 21 running `vsftpd 2.3.4`, a version that's well known for containing a backdoor. I confirmed this using `searchsploit` and then used the corresponding Metasploit module to exploit it, which gave me a remote root shell on the target with no valid credentials needed. That's about as severe as a vulnerability gets, since it hands over full control of the machine to anyone who knows how to find it.
 
-Full details, screenshots, and remediation recommendations are in `penetration_test_report.pdf`. Raw scan output and packet captures are in `nmap_and_wireshark_labs/`.
+The full writeup, including screenshots of every step and my remediation recommendations, is in `penetration_test_report.pdf`. The raw nmap output and Wireshark capture file are in the `nmap_and_wireshark_labs` folder.
 
 ## Project 2 — Cryptography & Password Security
 
 ### secure_auth.py
 
-Implements a `SecureAuth` class that registers users and stores their passwords hashed with bcrypt in `users.json`. Passwords are never stored in plaintext.
+This file implements a small authentication system built around a `SecureAuth` class. It lets you register a new user, hashes their password with bcrypt before anything gets written to disk, and stores the result in a `users.json` file. Plaintext passwords are never saved anywhere.
 
-Demonstrated behavior:
-- Registering a new user succeeds
-- Registering an existing username returns `"User exists!"`
-- Logging in with the correct password returns `True`
-- Logging in with an incorrect password returns `False`
-- Hashing the same password twice with bcrypt produces two different hashes, because `bcrypt.gensalt()` generates a new random salt each time
-- Hashing the same password twice with plain SHA-256 produces the identical hash both times, showing why SHA-256 alone is unsuitable for password storage and vulnerable to rainbow table attacks
+Running the file walks through a few scenarios to prove the system behaves the way it should. Registering a new user succeeds normally, but trying to register the same username again correctly gets rejected. Logging in with the right password returns `True`, and logging in with the wrong one returns `False`. I also hashed the same password twice with bcrypt to show that the two resulting hashes come out completely different each time, since bcrypt generates a fresh random salt on every call. As a point of comparison, I did the same thing with plain SHA-256, which produced the exact same hash both times — a good illustration of why SHA-256 on its own is a poor choice for storing passwords and why the added salt in bcrypt matters so much.
 
 ### encryption_examples.py
 
-Demonstrates symmetric encryption using Fernet:
-- Generates a key and encrypts a sample piece of sensitive data
-- Decrypts the data successfully using the correct key
-- Attempts decryption with a different, incorrect key, which raises `InvalidToken`, confirming the encrypted data cannot be read without the correct key
+This file demonstrates symmetric encryption using Fernet, from the `cryptography` library. It generates an encryption key, uses it to encrypt a sample piece of sensitive data, and then decrypts it again successfully using that same key. To show the other side of this, I also tried decrypting the same data with a completely different key, which correctly raises an `InvalidToken` exception rather than returning garbage or silently failing, confirming that the encrypted data really is protected without the right key.
 
 ## Key Takeaways
 
-- Passwords must be hashed with a salted, slow algorithm such as bcrypt, never stored in plaintext or with fast general-purpose hashes like SHA-256
-- A unique salt per password prevents rainbow table attacks and ensures identical passwords do not produce identical hashes
-- Sensitive data in transit or at rest should use authenticated symmetric encryption such as Fernet, with keys kept separate from the encrypted data
-- Outdated, unpatched services such as `vsftpd 2.3.4` can provide attackers with direct root access, reinforcing the need for regular patching and service hardening
+Working through both projects this month reinforced a few things that come up constantly in real-world security work. Passwords should always be hashed with something slow and salted like bcrypt rather than stored in plaintext or hashed with a fast algorithm like SHA-256, since a unique salt is really what stands between a stolen password database and a trivial rainbow table lookup. Sensitive data that needs to be reversible, rather than just verified, should be encrypted with something like Fernet, with the key kept separate from the data itself. And on the infrastructure side, the vsftpd exploit was a clear reminder of how much damage a single outdated, unpatched service can cause, which is really the whole argument for regular patching and keeping unnecessary services turned off in the first place.
